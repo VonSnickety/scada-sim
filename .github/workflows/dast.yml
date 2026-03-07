@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # ── Start the backend in mock mode ──────────────────────────────────────
       # MOCK_MODE=true makes the backend return simulated sensor data instead
