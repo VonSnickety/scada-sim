@@ -1,14 +1,11 @@
 # scada-sim
 
 A water treatment plant simulation I built to get hands-on with industrial
-control system security. Rather than reading about SCADA vulnerabilities in
-theory, I wanted to actually run a plant, watch sensors change in real time,
-and understand what it takes to secure the stack properly.
+control system security.
 
 The simulation runs [Factory.io](https://factoryio.com/) (an industrial
 simulation tool) under Wine on Linux, with a real Modbus TCP connection to a
-Python backend — the same protocol used in actual water treatment facilities.
-Everything is containerised with Docker Compose and sits behind an OWASP WAF.
+Python backend. Everything is containerised.
 
 ---
 
@@ -44,8 +41,6 @@ Browser → OWASP ModSecurity WAF → nginx (React HMI) → FastAPI backend → 
 ---
 
 ## Security features
-
-This project is as much about the security layer as the simulation itself.
 
 **Static analysis (every push):**
 - **Gitleaks** — scans git history for accidentally committed secrets
@@ -85,46 +80,6 @@ The `docs/` folder contains the security design documentation:
 
 ---
 
-## Running it
-
-You'll need Factory.io installed (Windows or Wine on Linux) with the Modbus
-driver configured. See the register map below.
-
-**Prerequisites:**
-- Docker + Docker Compose
-- Wine with Factory.io (or set `MOCK_MODE=true` to run without it)
-
-**Setup:**
-
-```bash
-# Copy and fill in the env file
-cp backend/.env.example backend/.env
-# Edit backend/.env with your API key and InfluxDB token
-
-# Copy root env for Docker Compose secrets
-cp backend/.env.example .env
-# Edit .env with the same InfluxDB token and admin password
-```
-
-**Start everything (Factory.io + full Docker stack):**
-
-```bash
-./start.sh
-```
-
-This applies the iptables rule for Docker→Modbus connectivity, launches
-Factory.io under Wine, waits for it to initialise, then brings up the stack.
-
-**Or run in mock mode (no Factory.io needed):**
-
-```bash
-MOCK_MODE=true docker compose up
-```
-
-The HMI is at `http://localhost` and the API at `http://localhost:8000/api/state`.
-
----
-
 ## Factory.io Modbus register map
 
 If you want to connect your own Factory.io scene, here's what the backend expects:
@@ -139,23 +94,6 @@ If you want to connect your own Factory.io scene, here's what the backend expect
 | Discrete Input (FC2) | 3 | 0/1 | Running status |
 | Holding Register (FC3) | 0 | 0 / 32767 | Fill valve (0=closed, 32767=open) |
 | Holding Register (FC3) | 1 | 0 / 32767 | Discharge valve |
-
----
-
-## Why Modbus has no authentication
-
-Modbus was designed in 1979 for isolated serial networks — security was never
-part of the spec. There's no authentication, no encryption, no integrity
-checking. Anyone who can reach port 502 can read every sensor and write to
-every actuator.
-
-In real water treatment facilities this is mitigated by physical network
-isolation (dedicated OT VLANs with no route to corporate IT), encrypted
-tunnels over any shared medium, and — increasingly — modern protocols like
-OPC-UA which support authentication and encryption natively.
-
-This project documents that gap honestly in the threat model rather than
-pretending it doesn't exist.
 
 ---
 
