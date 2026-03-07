@@ -83,7 +83,7 @@ jobs:
       # GitHub Actions summary page. It shows every finding with risk level,
       # description, and remediation advice.
       - name: Upload ZAP report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: zap-report
