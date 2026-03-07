@@ -67,24 +67,16 @@ jobs:
       # -r : output report filename
       # -c : rules config file (suppresses known false positives)
       # -z : extra ZAP options — inject our API key header on every request
+      # ── Run OWASP ZAP API Scan ───────────────────────────────────────────────
+      # target points directly at the OpenAPI spec URL — ZAP uses it to
+      # discover all endpoints and parameters automatically.
+      # fail_action: false means findings create a report but don't fail the
+      # build — useful while we're still tuning the false-positive rules.
       - name: Run OWASP ZAP API Scan
         uses: zaproxy/action-api-scan@v0.9.0
         with:
-          target: http://localhost:8000
+          target: 'http://localhost:8000/openapi.json'
           format: openapi
-          api_scan_yaml: /tmp/openapi.json
-          rules_file_name: .zap/rules.tsv
-          report_html: zap-report.html
+          rules_file_name: '.zap/rules.tsv'
           fail_action: false
           cmd_options: '-z "-config replacer.full_list(0).description=auth -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=X-API-Key -config replacer.full_list(0).replacement=zap-test-key"'
-
-      # ── Upload the HTML report as a build artifact ──────────────────────────
-      # After the workflow runs, you can download the full ZAP report from the
-      # GitHub Actions summary page. It shows every finding with risk level,
-      # description, and remediation advice.
-      - name: Upload ZAP report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: zap-report
-          path: zap-report.html

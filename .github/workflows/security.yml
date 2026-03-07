@@ -52,16 +52,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Semgrep
+        # semgrep scan analyses code locally — no account or token needed.
+        # --error makes the job fail if any findings are found.
         run: |
-          semgrep ci \
+          semgrep scan \
             --config p/python \
             --config p/owasp-top-ten \
             --config .semgrep/ics-security.yml \
             --error
-        env:
-          # Optional: set this secret in GitHub to upload results to semgrep.dev
-          # SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
-          SEMGREP_APP_TOKEN: ""
 
   # ── 3. Trivy — Container Vulnerability Scanning ────────────────────────────
   # Trivy scans Docker images for CVEs in OS packages and language dependencies.
