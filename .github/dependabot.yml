@@ -1,0 +1,57 @@
+# dependabot.yml — Automated dependency update PRs
+#
+# Dependabot checks for new versions of your dependencies daily and opens
+# pull requests automatically. This means when a CVE is patched in pymodbus
+# or a base Docker image, you get a PR within 24 hours instead of finding
+# out months later during a pen test.
+#
+# This is a core part of OWASP A06:2021 — Vulnerable and Outdated Components
+# and maps to Essential Eight Maturity Level 2 (patch applications within 1 month).
+
+version: 2
+updates:
+
+  # ── Python dependencies (backend/requirements.txt) ─────────────────────────
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: daily
+    # Group all non-security updates into one PR to reduce noise.
+    # Security updates always get their own PR so they're easy to track.
+    groups:
+      python-deps:
+        update-types:
+          - minor
+          - patch
+
+  # ── Docker base images ─────────────────────────────────────────────────────
+  # Checks for new versions of python:3.12-slim and nginx:alpine used
+  # in the Dockerfiles. New image digests = OS-level package updates.
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
+
+  # ── npm dependencies (frontend) ────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: daily
+    groups:
+      npm-deps:
+        update-types:
+          - minor
+          - patch
+
+  # ── GitHub Actions ─────────────────────────────────────────────────────────
+  # Keeps the action versions pinned to latest — important because actions
+  # run with access to your repo and secrets.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

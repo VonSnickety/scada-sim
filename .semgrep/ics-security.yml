@@ -1,0 +1,121 @@
+# ics-security.yml — Custom Semgrep rules for ICS/SCADA-specific security issues
+#
+# These rules catch problems that general-purpose scanners miss because they
+# don't understand industrial control system context.
+#
+# Each rule has:
+#   - id        : unique identifier
+#   - message   : what the developer sees when it fires
+#   - severity  : ERROR (blocks CI), WARNING (reported only)
+#   - metadata  : maps to security frameworks (OWASP, IEC 62443) for reporting
+
+rules:
+
+  # ── Rule 1: Hardcoded Modbus host ──────────────────────────────────────────
+  # Hardcoding an IP address for a PLC/RTU means the code breaks silently when
+  # the device moves, and the address can leak into public repos.
+  # The correct pattern is to read it from config/environment variables.
+  - id: hardcoded-modbus-host
+    patterns:
+      - pattern: ModbusTcpClient("...")
+      - pattern-not: ModbusTcpClient($CONFIG)
+    message: |
+      Hardcoded Modbus host detected. PLC/RTU addresses must be read from
+      environment variables or config files, not embedded in source code.
+      Use: ModbusTcpClient(settings.factoryio_host)
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-656
+      owasp: A05:2021 - Security Misconfiguration
+      iec62443: SR 7.6 - Network and Security Configuration Settings
+
+  # ── Rule 2: Unauthenticated Modbus write ───────────────────────────────────
+  # Modbus has no built-in authentication. Any write to a coil or holding
+  # register directly changes physical state (opens valves, starts pumps).
+  # All write paths in our API must go through the auth dependency first.
+  # This rule flags any direct write_coil/write_register call that isn't
+  # inside a function that already has auth checked at the route level.
+  - id: modbus-write-no-auth-comment
+    patterns:
+      - pattern: $CLIENT.write_coil(...)
+      - pattern-not-inside: |
+          # auth-verified
+          ...
+      - pattern-not-inside: |
+          def $FUNC(..., api_key: str = Depends(...), ...):
+              ...
+    message: |
+      Modbus write operation may lack authentication guard. All Modbus writes
+      must only be reachable through authenticated API endpoints.
+      Add '# auth-verified' comment if this is intentional (e.g. in a test helper).
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-306
+      owasp: A01:2021 - Broken Access Control
+      iec62443: SR 1.1 - Human User Authentication
+
+  # ── Rule 3: Modbus write with no bounds check ──────────────────────────────
+  # Writing an unchecked integer directly to a holding register is dangerous.
+  # A value outside the device's expected range can damage equipment or cause
+  # unsafe operating conditions (e.g. opening a valve to 200% setpoint).
+  - id: modbus-write-unbounded-value
+    patterns:
+      - pattern: $CLIENT.write_register($ADDR, $VAL, ...)
+      - pattern-not: $CLIENT.write_register($ADDR, min(max($VAL, ...), ...), ...)
+      - pattern-not: |
+          assert 0 <= $VAL <= ...
+          ...
+          $CLIENT.write_register(...)
+    message: |
+      Modbus register write with potentially unbounded value. Validate and
+      clamp the value before writing to prevent out-of-range commands that
+      could damage equipment: value = max(0, min(value, MAX_VALUE))
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-20
+      owasp: A03:2021 - Injection
+      iec62443: SR 3.5 - Input Validation
+
+  # ── Rule 4: Debug/mock mode left enabled ──────────────────────────────────
+  # Mock mode bypasses the real Modbus connection and returns fake data.
+  # If accidentally deployed to production, operators see fake sensor readings
+  # while the real plant runs unmonitored — a safety and security risk.
+  - id: mock-mode-hardcoded-true
+    pattern: mock_mode = True
+    message: |
+      MOCK_MODE is hardcoded to True. This bypasses the real Modbus connection
+      and must never be deployed to a production environment.
+      Use environment variable: MOCK_MODE=false in production .env
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-489
+      owasp: A05:2021 - Security Misconfiguration
+      iec62443: SR 7.7 - Least Functionality
+
+  # ── Rule 5: Secrets in source code ────────────────────────────────────────
+  # Catches common patterns where API keys or tokens are assigned as string
+  # literals rather than read from environment variables.
+  # Gitleaks also catches these, but having it in Semgrep means it shows up
+  # as a SAST finding with line numbers in the code review.
+  - id: hardcoded-api-key
+    patterns:
+      - pattern: api_key = "..."
+      - pattern-not: api_key = settings.api_key
+      - pattern-not: api_key = os.getenv(...)
+    message: |
+      Hardcoded API key detected. Secrets must be read from environment
+      variables, never embedded in source code.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-798
+      owasp: A07:2021 - Identification and Authentication Failures

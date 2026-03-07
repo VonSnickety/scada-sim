@@ -1,0 +1,90 @@
+# security.yml — Static security checks on every push and pull request
+#
+# Three jobs run in parallel:
+#   1. gitleaks   — scans git history for accidentally committed secrets
+#   2. semgrep    — static analysis for insecure code patterns
+#   3. trivy      — scans Docker images for known CVEs
+
+name: Security
+
+# Trigger on every push to any branch, and on pull requests targeting trunk
+on:
+  push:
+  pull_request:
+    branches: [trunk]
+
+jobs:
+
+  # ── 1. Gitleaks — Secret Scanning ──────────────────────────────────────────
+  # Gitleaks walks the entire git history looking for things that look like
+  # secrets: API keys, tokens, passwords, private keys etc.
+  # It uses regex patterns maintained by the Gitleaks project.
+  gitleaks:
+    name: Secret Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so Gitleaks can scan all past commits,
+          # not just the latest snapshot
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 2. Semgrep — Static Application Security Testing (SAST) ────────────────
+  # Semgrep analyses source code without running it, matching patterns that
+  # indicate security bugs (e.g. SQL injection, hardcoded creds, unsafe deserialization).
+  # We run two rule sets:
+  #   - p/python        : general Python security rules
+  #   - p/owasp-top-ten : maps findings to OWASP Top 10 categories
+  # Plus our own custom ICS rules in .semgrep/ics-security.yml
+  semgrep:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          semgrep ci \
+            --config p/python \
+            --config p/owasp-top-ten \
+            --config .semgrep/ics-security.yml \
+            --error
+        env:
+          # Optional: set this secret in GitHub to upload results to semgrep.dev
+          # SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+          SEMGREP_APP_TOKEN: ""
+
+  # ── 3. Trivy — Container Vulnerability Scanning ────────────────────────────
+  # Trivy scans Docker images for CVEs in OS packages and language dependencies.
+  # We build the backend image locally (no push needed) and scan it.
+  # severity HIGH and CRITICAL will fail the build; MEDIUM and below are reported only.
+  trivy:
+    name: Container Scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -t scada-backend:ci ./backend
+
+      - name: Run Trivy on backend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: scada-backend:ci
+          format: table
+          # Fail the workflow if any HIGH or CRITICAL CVEs are found
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+          # Ignore CVEs that have no fix available yet — unfixable vulns just
+          # add noise without being actionable
+          ignore-unfixed: true

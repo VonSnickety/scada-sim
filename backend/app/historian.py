@@ -88,7 +88,12 @@ class Historian:
         """
         Fetch the last N minutes of data for a given field.
         Used by the API to serve trend chart data to the HMI.
+        In mock mode, InfluxDB isn't running so we return an empty list.
         """
+        from .config import settings
+        if settings.mock_mode:
+            return []
+
         query_api = self._influx.query_api()
         query = f'''
         from(bucket: "{settings.influx_bucket}")

@@ -1,0 +1,90 @@
+# dast.yml — Dynamic Application Security Testing with OWASP ZAP
+#
+# Unlike SAST (which reads code), DAST actually runs the application and
+# sends real HTTP requests to find vulnerabilities like a real attacker would.
+#
+# We spin up the backend in MOCK_MODE so we don't need Factory.io or InfluxDB,
+# then point ZAP at it to test the API endpoints.
+#
+# Runs on push to trunk and on pull requests targeting trunk.
+
+name: DAST
+
+on:
+  push:
+    branches: [trunk]
+  pull_request:
+    branches: [trunk]
+
+jobs:
+  zap:
+    name: OWASP ZAP API Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Start the backend in mock mode ──────────────────────────────────────
+      # MOCK_MODE=true makes the backend return simulated sensor data instead
+      # of connecting to Factory.io via Modbus. This lets ZAP test all the
+      # API endpoints in CI without any physical hardware or extra containers.
+      - name: Start backend in mock mode
+        run: |
+          cd backend
+          pip install -r requirements.txt --quiet
+          MOCK_MODE=true \
+          API_KEY=zap-test-key \
+          INFLUX_URL=http://localhost:8086 \
+          INFLUX_TOKEN=dummy \
+          INFLUX_ORG=scadasim \
+          INFLUX_BUCKET=plant_data \
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          # Wait for the server to be ready before handing off to ZAP
+          echo "Waiting for backend to start..."
+          for i in $(seq 1 15); do
+            curl -sf http://localhost:8000/api/state -H "X-API-Key: zap-test-key" && break
+            sleep 2
+          done
+
+      # ── Generate OpenAPI spec for ZAP ───────────────────────────────────────
+      # FastAPI auto-generates an OpenAPI (Swagger) spec at /openapi.json.
+      # ZAP uses this to discover all endpoints and parameters automatically,
+      # so it doesn't have to guess — it tests exactly what's in your API.
+      - name: Export OpenAPI spec
+        run: |
+          curl -s http://localhost:8000/openapi.json > /tmp/openapi.json
+          echo "OpenAPI spec:"
+          cat /tmp/openapi.json | python3 -m json.tool --no-ensure-ascii | head -40
+
+      # ── Run OWASP ZAP ───────────────────────────────────────────────────────
+      # ZAP API scan mode reads the OpenAPI spec and tests every endpoint.
+      # It checks for OWASP Top 10 issues: SQLi, XSS, auth bypass, IDOR,
+      # security header misconfigurations, etc.
+      #
+      # -t : target URL
+      # -f : OpenAPI spec file (tells ZAP what endpoints exist)
+      # -r : output report filename
+      # -c : rules config file (suppresses known false positives)
+      # -z : extra ZAP options — inject our API key header on every request
+      - name: Run OWASP ZAP API Scan
+        uses: zaproxy/action-api-scan@v0.9.0
+        with:
+          target: http://localhost:8000
+          format: openapi
+          api_scan_yaml: /tmp/openapi.json
+          rules_file_name: .zap/rules.tsv
+          report_html: zap-report.html
+          fail_action: false
+          cmd_options: '-z "-config replacer.full_list(0).description=auth -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=X-API-Key -config replacer.full_list(0).replacement=zap-test-key"'
+
+      # ── Upload the HTML report as a build artifact ──────────────────────────
+      # After the workflow runs, you can download the full ZAP report from the
+      # GitHub Actions summary page. It shows every finding with risk level,
+      # description, and remediation advice.
+      - name: Upload ZAP report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-report
+          path: zap-report.html
