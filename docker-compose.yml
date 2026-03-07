@@ -1,0 +1,80 @@
+services:
+
+  # ── WAF ──────────────────────────────────────────────────────────────────────
+  # All external traffic enters here first.
+  # OWASP ModSecurity with Core Rule Set blocks OWASP Top 10 attacks
+  # (SQLi, XSS, path traversal, command injection etc) before they
+  # reach the application.
+  waf:
+    image: owasp/modsecurity-crs:nginx
+    restart: unless-stopped
+    ports:
+      - "80:8080"
+    environment:
+      - BACKEND=http://frontend:80
+      - PARANOIA=1          # CRS paranoia level — 1 is standard, 4 is strictest
+      - ANOMALY_INBOUND=5   # Block request if attack score exceeds this
+      - ANOMALY_OUTBOUND=4
+      - ALLOWED_METHODS=GET POST HEAD OPTIONS
+    depends_on:
+      - frontend
+
+  # ── Frontend ──────────────────────────────────────────────────────────────────
+  # React HMI built and served by nginx.
+  # All browser traffic hits the WAF first, which proxies here.
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+    depends_on:
+      - backend
+
+  # ── Backend ───────────────────────────────────────────────────────────────────
+  # FastAPI SCADA backend — reads Factory.io via Modbus, serves REST API,
+  # writes to InfluxDB historian.
+  # host.docker.internal lets the container reach Factory.io running on the
+  # host machine (Wine/Modbus on 127.0.0.1:502).
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override the host so the container can reach Wine on the host machine
+      - FACTORYIO_HOST=host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+  # ── InfluxDB ──────────────────────────────────────────────────────────────────
+  # Time-series database — stores all sensor readings from the historian.
+  # The INIT environment variables auto-create the org, bucket, and admin
+  # token on first run so you don't need to manually set it up.
+  influxdb:
+    image: influxdb:2
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUX_ADMIN_PASSWORD}
+      - DOCKER_INFLUXDB_INIT_ORG=scadasim
+      - DOCKER_INFLUXDB_INIT_BUCKET=plant_data
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUX_TOKEN}
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  # Named volume so InfluxDB data persists across container restarts
+  influxdb_data:
