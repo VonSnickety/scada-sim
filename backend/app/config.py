@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # API key required for control commands (valve writes)
     # Read endpoints are public — control endpoints are protected
-    api_key: str = "change-me"
+    api_key: str = "change-me"  # nosemgrep: hardcoded-api-key — Pydantic default, overridden by API_KEY env var
 
     # InfluxDB connection — historian that stores all sensor readings
     influx_url: str = "http://influxdb:8086"
