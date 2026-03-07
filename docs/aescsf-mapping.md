@@ -8,8 +8,8 @@ operating critical infrastructure. It is based on the NIST Cybersecurity
 Framework (CSF) and adapted for Australian critical infrastructure obligations
 under the Security of Critical Infrastructure Act 2018 (SOCI Act).
 
-Water utilities such as WaterNSW use AESCSF to assess and report their cyber
-security posture to regulators. The framework is organised into five functions
+Australian water and energy utilities use AESCSF to assess and report their
+cyber security posture to regulators. The framework is organised into five functions
 that together describe a complete security lifecycle.
 
 This document maps scada-sim controls to AESCSF functions and categories,
