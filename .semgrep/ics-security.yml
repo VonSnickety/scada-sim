@@ -119,3 +119,31 @@ rules:
       category: security
       cwe: CWE-798
       owasp: A07:2021 - Identification and Authentication Failures
+
+  # ── Rule 6: Control endpoint missing audit record ─────────────────────────
+  # Every actuator command must be logged so operators can detect and
+  # investigate unauthorised or anomalous control actions.
+  # OWASP A09:2021 — Security Logging and Monitoring Failures
+  # IEC 62443 SR 2.8 — Auditable Events
+  - id: control-endpoint-missing-audit
+    patterns:
+      - pattern: |
+          @router.post(...)
+          async def $FUNC(...):
+              ...
+      - pattern-not: |
+          @router.post(...)
+          async def $FUNC(...):
+              ...
+              _audit.record(...)
+              ...
+    message: >
+      Control endpoint is missing _audit.record() call. All actuator commands
+      must be logged. OWASP A09:2021 — Security Logging and Monitoring Failures
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-778
+      owasp: A09:2021 - Security Logging and Monitoring Failures
+      iec62443: SR 2.8 - Auditable Events

@@ -4,6 +4,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from ..audit import AuditLog
 from ..auth import verify_api_key, limiter
 from ..factoryio_client import FactoryIOClient
 from ..historian import Historian
@@ -14,13 +15,15 @@ router = APIRouter(prefix="/api")
 # Set by main.py during startup — routes access these via module-level refs
 _factoryio: FactoryIOClient = None
 _historian: Historian = None
+_audit: AuditLog = None
 
 
-def init_router(factoryio: FactoryIOClient, historian: Historian):
+def init_router(factoryio: FactoryIOClient, historian: Historian, audit: AuditLog):
     """Called once at startup to give routes access to the shared clients."""
-    global _factoryio, _historian
+    global _factoryio, _historian, _audit
     _factoryio = factoryio
     _historian = historian
+    _audit = audit
 
 
 # ── Request models ─────────────────────────────────────────────────────────────
@@ -84,7 +87,21 @@ async def control_fill_valve(cmd: ValveCommand, request: Request):
     OWASP API2:2023 — Broken Authentication
     """
     logger.info(f"CONTROL fill_valve open={cmd.open} from={request.client.host}")
-    await _factoryio.cmd_fill_valve(cmd.open)
+    try:
+        await _factoryio.cmd_fill_valve(cmd.open)
+        _audit.record(
+            action="fill_valve_open" if cmd.open else "fill_valve_close",
+            actor=request.client.host,
+            outcome="success",
+        )
+    except Exception as exc:
+        _audit.record(
+            action="fill_valve_open" if cmd.open else "fill_valve_close",
+            actor=request.client.host,
+            outcome="failure",
+            detail=str(exc),
+        )
+        raise
     return {"fill_valve": cmd.open}
 
 
@@ -95,5 +112,26 @@ async def control_discharge_valve(cmd: ValveCommand, request: Request):
     Requires API key — only authorised operators can command actuators.
     """
     logger.info(f"CONTROL discharge_valve open={cmd.open} from={request.client.host}")
-    await _factoryio.cmd_discharge_valve(cmd.open)
+    try:
+        await _factoryio.cmd_discharge_valve(cmd.open)
+        _audit.record(
+            action="discharge_valve_open" if cmd.open else "discharge_valve_close",
+            actor=request.client.host,
+            outcome="success",
+        )
+    except Exception as exc:
+        _audit.record(
+            action="discharge_valve_open" if cmd.open else "discharge_valve_close",
+            actor=request.client.host,
+            outcome="failure",
+            detail=str(exc),
+        )
+        raise
     return {"discharge_valve": cmd.open}
+
+
+@router.get("/audit", dependencies=[Depends(verify_api_key)])
+async def get_audit_log(limit: int = 100):
+    """Recent audit log entries, newest first."""
+    limit = max(1, min(limit, 500))
+    return {"entries": _audit.recent(limit)}

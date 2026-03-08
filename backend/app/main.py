@@ -7,6 +7,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .audit import AuditLog
 from .auth import limiter
 from .factoryio_client import FactoryIOClient
 from .historian import Historian
@@ -59,7 +60,8 @@ async def lifespan(app: FastAPI):
     historian = Historian(factoryio)
     await historian.start()
 
-    init_router(factoryio, historian)
+    audit = AuditLog()
+    init_router(factoryio, historian, audit)
 
     logger.info("SCADA backend ready")
     yield
