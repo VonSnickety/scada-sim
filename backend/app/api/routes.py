@@ -169,3 +169,10 @@ async def get_audit_log(limit: int = 100):
     """Recent audit log entries, newest first."""
     limit = max(1, min(limit, 500))
     return {"entries": _audit.recent(limit)}
+
+
+@router.post("/diagnostics/reset-alarms")
+async def reset_alarms():
+    """Clear all active alarms — for maintenance use."""
+    _factoryio.state.alarms = []
+    return {"alarms_cleared": True}
