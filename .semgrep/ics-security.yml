@@ -180,3 +180,92 @@ rules:
       cwe: CWE-306
       owasp: A01:2021 - Broken Access Control
       iec62443: SR 1.1 - Human User Authentication
+
+  # ── Rule 8: Modbus read with no exception handling ─────────────────────────
+  # In an OT environment, a PLC or RTU can go offline at any time — power loss,
+  # network fault, firmware crash. If a Modbus read has no exception handling,
+  # the polling loop hangs or crashes silently, leaving operators with stale
+  # data while the physical plant continues to run unmonitored.
+  # This rule requires that all Modbus read calls are wrapped in try/except so
+  # faults are caught, logged, and surfaced as alarms rather than silent failures.
+  # IEC 62443 SR 6.2 — Continuous Monitoring
+  # IEC 62443 SR 7.6 — Network and Security Configuration Settings
+  - id: modbus-read-no-exception-handling
+    patterns:
+      - pattern: |
+          $RESULT = await $CLIENT.read_input_registers(...)
+      - pattern-not-inside: |
+          try:
+              ...
+          except ...:
+              ...
+    message: |
+      Modbus read operation has no exception handling. If the PLC goes offline,
+      this call will raise an unhandled exception and crash the polling loop,
+      leaving operators with stale data while the plant runs unmonitored.
+      Wrap in try/except and raise an alarm on failure.
+      IEC 62443 SR 6.2 — Continuous Monitoring
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-390
+      iec62443: SR 6.2 - Continuous Monitoring
+
+  # ── Rule 9: Swallowed exception on Modbus operation ────────────────────────
+  # Catching a Modbus exception and doing nothing (pass, or logging only) means
+  # the system continues operating on stale sensor data without any alarm.
+  # In a water treatment context this could mean a tank overflows or runs dry
+  # while the HMI shows the last known good reading.
+  # All Modbus exception handlers must take a corrective action — at minimum,
+  # set connected=False and raise a CRIT alarm so operators know data is stale.
+  # IEC 62443 SR 6.2 — Continuous Monitoring
+  # IEC 62443 SR 6.1 — Audit Log Accessibility
+  - id: modbus-exception-swallowed
+    patterns:
+      - pattern: |
+          except ModbusException:
+              pass
+      - pattern: |
+          except ModbusException as $E:
+              pass
+    message: |
+      Modbus exception is being swallowed with no corrective action. The system
+      will continue returning stale sensor data without alarming operators.
+      At minimum: set connected=False, raise a CRIT alarm, and log the error.
+      IEC 62443 SR 6.2 — Continuous Monitoring
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-390
+      iec62443: SR 6.2 - Continuous Monitoring
+
+  # ── Rule 10: Modbus write without prior connection check ───────────────────
+  # Writing to a Modbus register when the connection state is unknown can result
+  # in writes being silently dropped, or worse — the pymodbus client attempting
+  # a write to a stale socket and raising an unhandled exception that bypasses
+  # the actuator state update. The physical valve state and software state then
+  # diverge, which is a safety and integrity issue.
+  # All write paths must verify the client is connected before writing.
+  # IEC 62443 SR 3.6 — Deterministic Output
+  - id: modbus-write-no-connection-check
+    patterns:
+      - pattern: await $CLIENT.write_register(...)
+      - pattern-not-inside: |
+          if not $CLIENT or not $CLIENT.connected:
+              ...
+          ...
+          await $CLIENT.write_register(...)
+    message: |
+      Modbus write_register called without a prior connection check. If the
+      client is disconnected, the write may fail silently, causing the physical
+      actuator state and software state to diverge — a safety integrity issue.
+      Check client.connected before writing.
+      IEC 62443 SR 3.6 — Deterministic Output
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-754
+      iec62443: SR 3.6 - Deterministic Output
