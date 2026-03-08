@@ -1,9 +1,10 @@
 # security.yml — Static security checks on every push and pull request
 #
-# Three jobs run in parallel:
+# Four jobs run in parallel:
 #   1. gitleaks   — scans git history for accidentally committed secrets
 #   2. semgrep    — static analysis for insecure code patterns
 #   3. trivy      — scans Docker images for known CVEs
+#   4. unit-tests — alarm logic, audit log, acknowledgement behaviour
 
 name: Security
 
@@ -86,3 +87,37 @@ jobs:
           # Ignore CVEs that have no fix available yet — unfixable vulns just
           # add noise without being actionable
           ignore-unfixed: true
+
+  # ── 4. Unit Tests — Alarm Logic and Audit Log ──────────────────────────────
+  # Tests the security-relevant behaviour of the plant monitoring system:
+  # alarm thresholds, debounce logic, acknowledgement persistence, and audit
+  # log correctness. No Factory.io, InfluxDB, or network connection required.
+  #
+  # These tests catch regressions — if someone changes a threshold or breaks
+  # the alarm logic, CI fails immediately before it reaches production.
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt pytest --quiet
+
+      - name: Run unit tests
+        run: pytest backend/tests/ -v
+        env:
+          PYTHONPATH: ${{ github.workspace }}/backend
+          MOCK_MODE: "true"
+          API_KEY: "test-key"
+          INFLUX_URL: "http://localhost:8086"
+          INFLUX_TOKEN: "dummy"
+          INFLUX_ORG: "scadasim"
+          INFLUX_BUCKET: "plant_data"
+
