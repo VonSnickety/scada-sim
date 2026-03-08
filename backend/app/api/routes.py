@@ -130,6 +130,40 @@ async def control_discharge_valve(cmd: ValveCommand, request: Request):
     return {"discharge_valve": cmd.open}
 
 
+@router.post("/alarms/{alarm_id}/acknowledge", dependencies=[Depends(verify_api_key)])
+async def acknowledge_alarm(alarm_id: str, request: Request):
+    """
+    Acknowledge an active alarm by ID.
+    Requires API key — only authorised operators may acknowledge alarms.
+
+    Security references:
+      OWASP A01:2021 — Broken Access Control: acknowledgement is a state-changing
+      operation; unauthenticated access would allow an attacker to silently suppress
+      alarms, masking process faults.
+      IEC 62443 SR 1.1 — Human User Authentication: all operator actions that affect
+      process safety state must be attributable to an authenticated identity.
+    """
+    alarm = next((a for a in _factoryio.state.alarms if a.id == alarm_id), None)
+    if alarm is None:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+    try:
+        alarm.acknowledged = True
+        _audit.record(
+            action=f"alarm_acknowledge:{alarm_id}",
+            actor=request.client.host,
+            outcome="success",
+        )
+    except Exception as exc:
+        _audit.record(
+            action=f"alarm_acknowledge:{alarm_id}",
+            actor=request.client.host,
+            outcome="failure",
+            detail=str(exc),
+        )
+        raise
+    return {"alarm_id": alarm_id, "acknowledged": True}
+
+
 @router.get("/audit", dependencies=[Depends(verify_api_key)])
 async def get_audit_log(limit: int = 100):
     """Recent audit log entries, newest first."""

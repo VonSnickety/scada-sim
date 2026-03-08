@@ -25,6 +25,7 @@ class Alarm:
     id: str
     message: str
     severity: str  # CRIT, HIGH, WARN
+    acknowledged: bool = False
 
 
 @dataclass
@@ -141,7 +142,12 @@ class FactoryIOClient:
         """
         Check current plant state against process limits.
         Returns a list of active alarms — empty means all clear.
+        Acknowledgement is preserved across polls: if an alarm was acknowledged
+        in the previous cycle and the condition is still active, the flag carries forward.
         """
+        # Build a lookup of previously acknowledged alarm ids
+        previously_acked = {a.id for a in self.state.alarms if a.acknowledged}
+
         alarms = []
         level = self.state.tank_level
 
@@ -161,6 +167,11 @@ class FactoryIOClient:
             self._zero_flow_ticks = 0
         if self._zero_flow_ticks >= FLOW_NO_FLOW_TICKS:
             alarms.append(Alarm("FLOW_NO_FLOW", "Fill valve open but no flow detected — blocked pipe or sensor fault", "HIGH"))
+
+        # Carry forward acknowledgement for alarms that are still active
+        for alarm in alarms:
+            if alarm.id in previously_acked:
+                alarm.acknowledged = True
 
         return alarms
 

@@ -12,7 +12,7 @@ interface PlantState {
   fill_valve_open: boolean
   discharge_valve_open: boolean
   connected: boolean
-  alarms: Array<{ id: string; message: string; severity: string }>
+  alarms: Array<{ id: string; message: string; severity: string; acknowledged: boolean }>
 }
 
 const initialState: PlantState = {
@@ -51,6 +51,19 @@ export default function App() {
     const interval = setInterval(fetchState, 2000)
     return () => clearInterval(interval)
   }, [fetchState])
+
+  const acknowledgeAlarm = async (id: string) => {
+    try {
+      await axios.post(`/api/alarms/${id}/acknowledge`, null, {
+        headers: { 'X-API-Key': API_KEY },
+      })
+      fetchState()
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        alert('Acknowledge rejected — check API key')
+      }
+    }
+  }
 
   // Send a valve command to the backend — requires API key
   const sendControl = async (endpoint: string, body: object) => {
@@ -94,7 +107,7 @@ export default function App() {
 
       {/* Alarms */}
       <div className="mb-6">
-        <AlarmPanel alarms={state.alarms} />
+        <AlarmPanel alarms={state.alarms} onAcknowledge={acknowledgeAlarm} />
       </div>
 
       {/* Operator controls */}
