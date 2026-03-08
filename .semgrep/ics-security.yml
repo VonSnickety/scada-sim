@@ -222,11 +222,15 @@ rules:
   # IEC 62443 SR 6.2 — Continuous Monitoring
   # IEC 62443 SR 6.1 — Audit Log Accessibility
   - id: modbus-exception-swallowed
-    patterns:
+    pattern-either:
       - pattern: |
+          try:
+              ...
           except ModbusException:
               pass
       - pattern: |
+          try:
+              ...
           except ModbusException as $E:
               pass
     message: |

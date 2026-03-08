@@ -12,7 +12,7 @@ Every test here maps to a real failure mode:
 """
 
 import pytest
-from backend.app.factoryio_client import (
+from app.factoryio_client import (
     Alarm,
     FactoryIOClient,
     TANK_HIGH_CRIT,
@@ -21,7 +21,7 @@ from backend.app.factoryio_client import (
     TANK_LOW_WARN,
     FLOW_NO_FLOW_TICKS,
 )
-from backend.app.audit import AuditLog
+from app.audit import AuditLog
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
