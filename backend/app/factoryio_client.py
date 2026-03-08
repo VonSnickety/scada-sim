@@ -17,6 +17,7 @@ TANK_HIGH_WARN = 80.0   # % — filling fast, keep an eye on it
 TANK_HIGH_CRIT = 90.0   # % — stop filling immediately, overflow risk
 TANK_LOW_WARN  = 20.0   # % — tank getting low
 TANK_LOW_CRIT  = 10.0   # % — pump cavitation risk if running dry
+FLOW_NO_FLOW_TICKS = 3  # consecutive zero-flow polls before alarming
 
 
 @dataclass
@@ -53,6 +54,7 @@ class FactoryIOClient:
         self.client: Optional[AsyncModbusTcpClient] = None
         self.state = PlantState()
         self._lock = asyncio.Lock()
+        self._zero_flow_ticks: int = 0
 
     async def connect(self) -> bool:
         """Open the Modbus TCP connection to Factory.io."""
@@ -152,6 +154,13 @@ class FactoryIOClient:
             alarms.append(Alarm("T001_LL", f"Tank critical low: {level:.1f}%", "CRIT"))
         elif level <= TANK_LOW_WARN:
             alarms.append(Alarm("T001_LOW", f"Tank low level: {level:.1f}%", "WARN"))
+
+        if self.state.fill_valve_open and self.state.flow_rate == 0.0:
+            self._zero_flow_ticks += 1
+        else:
+            self._zero_flow_ticks = 0
+        if self._zero_flow_ticks >= FLOW_NO_FLOW_TICKS:
+            alarms.append(Alarm("FLOW_NO_FLOW", "Fill valve open but no flow detected — blocked pipe or sensor fault", "HIGH"))
 
         return alarms
 
