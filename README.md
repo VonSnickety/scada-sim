@@ -1,22 +1,28 @@
 # scada-sim
 
-A water treatment plant simulation I built to get hands-on with industrial
-control system security.
+A weekend project to get hands-on with OT security and application security CI/CD
+practices. Simulates a water treatment plant using real industrial protocols, then
+layers security controls and automated scanning on top.
 
-The simulation runs [Factory.io](https://factoryio.com/) (an industrial
-simulation tool) under Wine on Linux, with a real Modbus TCP connection to a
-Python backend. Everything is containerised.
+Not production infrastructure — the goal was to build something realistic enough
+that the security problems are interesting.
 
 ---
 
 ## What it does
 
-- **Fills and drains a water tank** using Modbus-controlled valves
-- **Streams live sensor data** (tank level, flow rate, setpoint) to a React
-  HMI dashboard that updates every 2 seconds
-- **Fires process alarms** when levels hit defined thresholds — high/high-high
-  for overflow risk, low/low-low for pump cavitation risk
-- **Stores all readings** in InfluxDB so you can view historical trends
+- **Fills and drains a water tank** via Modbus TCP-controlled valves connected to a
+  Factory.io 3D plant simulation
+- **Streams live sensor data** (tank level, flow rate, setpoint) to a React HMI
+  dashboard that updates every 2 seconds
+- **Fires process alarms** when values cross thresholds — high/high-high for overflow
+  risk, low/low-low for pump cavitation risk, and a no-flow alarm when the fill valve
+  is open but flow reads zero for 3 consecutive polls
+- **Alarm acknowledgement** — operators can acknowledge active alarms via the HMI;
+  acknowledgement persists across polls while the condition is active
+- **Audit log** — every actuator command and alarm acknowledgement is recorded with
+  timestamp, actor IP, and outcome; accessible via authenticated API endpoint
+- **Stores all readings** in InfluxDB for historical trend views
 - **Lets operators control valves** from the HMI, protected by API key auth
 
 ---
@@ -24,45 +30,40 @@ Python backend. Everything is containerised.
 ## Stack
 
 ```
-Browser → OWASP ModSecurity WAF → nginx (React HMI) → FastAPI backend → Modbus TCP → Factory.io
-                                                              └──────────────────────→ InfluxDB
+Browser → nginx (React HMI) → FastAPI backend → Modbus TCP → Factory.io
+                                    └──────────────────────→ InfluxDB
 ```
 
-| Component | Technology | Why |
-|-----------|-----------|-----|
-| Industrial simulation | Factory.io + Wine | Real Modbus server, actual PLC register map |
-| Backend | Python / FastAPI | Async Modbus polling, REST API, historian writes |
-| Protocol | Modbus TCP (pymodbus) | The real protocol used in water/energy SCADA |
-| Historian | InfluxDB 2 | Time-series database purpose-built for sensor data |
-| HMI | React + Vite + Tailwind + Recharts | Live dashboard, alarm panel, trend charts |
-| WAF | OWASP ModSecurity CRS | Blocks OWASP Top 10 before requests hit the app |
-| CI/CD | GitHub Actions | Gitleaks, Semgrep, Trivy, OWASP ZAP on every push |
+| Component | Technology |
+|-----------|-----------|
+| Industrial simulation | Factory.io + Wine on Linux |
+| Backend | Python / FastAPI |
+| Protocol | Modbus TCP (pymodbus) |
+| Historian | InfluxDB 2 |
+| HMI | React + Vite + Tailwind + Recharts |
+| CI/CD | GitHub Actions |
 
 ---
 
 ## Security features
 
-**Static analysis (every push):**
+**CI pipeline (every push):**
 - **Gitleaks** — scans git history for accidentally committed secrets
-- **Semgrep** — SAST with OWASP Top 10 rules plus custom ICS-specific rules
-  (hardcoded Modbus hosts, unauthenticated writes, mock mode in production)
-- **Trivy** — scans the Docker image for CVEs in OS packages and Python deps
-
-**Dynamic testing (every push to trunk):**
-- **OWASP ZAP** — spins up the backend in mock mode and fires real HTTP
-  requests at every endpoint, checking for exploitable vulnerabilities
+- **Semgrep** — SAST with OWASP Top 10 rules plus 7 custom ICS-specific rules:
+  hardcoded Modbus hosts, unauthenticated Modbus writes, unbounded register values,
+  mock mode hardcoded in production, hardcoded API keys, POST endpoints missing
+  authentication, and control endpoints missing audit logging
+- **Trivy** — scans the Docker image for CVEs in OS packages and Python dependencies
+- **OWASP ZAP** — spins up the backend in mock mode and probes every endpoint
+  for exploitable vulnerabilities using the OpenAPI spec
 
 **Runtime controls:**
-- OWASP ModSecurity WAF with Core Rule Set blocks SQLi, XSS, command injection
 - API key authentication with `secrets.compare_digest` (timing-attack safe)
-- Rate limiting on all endpoints
+- Rate limiting on all endpoints via slowapi
 - Security headers on every response (CSP, HSTS, X-Frame-Options, CORP, etc.)
+- Audit log for all control-plane actions (OWASP A09, IEC 62443 SR 2.8)
 - Non-root Docker containers
-- iptables restricts Modbus port 502 to the Docker bridge subnet only
-
-**Dependency management:**
-- Dependabot monitors Python packages, npm packages, Docker base images, and
-  GitHub Actions — raises PRs within 24 hours of a CVE patch being released
+- Dependabot monitors Python, npm, Docker base images, and GitHub Actions
 
 ---
 
@@ -70,19 +71,25 @@ Browser → OWASP ModSecurity WAF → nginx (React HMI) → FastAPI backend → 
 
 The `docs/` folder contains the security design documentation:
 
-- **[Threat Model](docs/threat-model.md)** — STRIDE analysis of every
-  component, trust zones, and documented accepted risks
-- **[Essential Eight Mapping](docs/essential8-mapping.md)** — maps controls
-  to the ASD Essential Eight with honest maturity level assessments
-- **[AESCSF Mapping](docs/aescsf-mapping.md)** — maps controls to the
-  Australian Energy Sector Cyber Security Framework (Identify, Protect,
-  Detect, Respond, Recover)
+- **[Threat Model](docs/threat-model.md)** — STRIDE analysis, trust zones, accepted risks
+- **[Essential Eight Mapping](docs/essential8-mapping.md)** — ASD Essential Eight with honest maturity assessments
+- **[AESCSF Mapping](docs/aescsf-mapping.md)** — Australian Energy Sector Cyber Security Framework mapping
+
+---
+
+## Intentional failure branches
+
+Three open PRs demonstrate the CI pipeline catching real vulnerability classes:
+
+| Branch | Scanner | What it demonstrates |
+|--------|---------|---------------------|
+| `test/trivy-vulnerable-dependency` | Trivy | Pinned dependency with known CVEs |
+| `test/semgrep-missing-auth-and-audit` | Semgrep | POST endpoint missing both auth and audit logging — two custom rules firing simultaneously |
+| `test/zap-reflected-parameter` | OWASP ZAP | Reflected query parameter with `fail_action` enabled |
 
 ---
 
 ## Factory.io Modbus register map
-
-If you want to connect your own Factory.io scene, here's what the backend expects:
 
 | Register type | Address | Value | Description |
 |--------------|---------|-------|-------------|
@@ -94,17 +101,3 @@ If you want to connect your own Factory.io scene, here's what the backend expect
 | Discrete Input (FC2) | 3 | 0/1 | Running status |
 | Holding Register (FC3) | 0 | 0 / 32767 | Fill valve (0=closed, 32767=open) |
 | Holding Register (FC3) | 1 | 0 / 32767 | Discharge valve |
-
----
-
-## CI/CD pipeline status
-
-The security pipeline runs automatically on every push:
-
-| Check | Trigger | Fail condition |
-|-------|---------|---------------|
-| Gitleaks | Every push | Committed secret found |
-| Semgrep | Every push | Insecure code pattern found |
-| Trivy | Every push | HIGH/CRITICAL CVE with available fix |
-| OWASP ZAP | Push to trunk | Exploitable vulnerability found |
-| Dependabot | Daily | Opens PRs for outdated dependencies |
