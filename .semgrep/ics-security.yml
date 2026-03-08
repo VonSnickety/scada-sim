@@ -147,3 +147,36 @@ rules:
       cwe: CWE-778
       owasp: A09:2021 - Security Logging and Monitoring Failures
       iec62443: SR 2.8 - Auditable Events
+
+  # ── Rule 7: Unauthenticated POST endpoint ─────────────────────────────────
+  # In an ICS/SCADA context, every POST endpoint represents a state-changing
+  # operation — starting a pump, opening a valve, modifying a setpoint.
+  # An unauthenticated POST allows any network-adjacent attacker to send
+  # arbitrary commands to physical equipment. Modbus has no native auth, so
+  # the API layer is the only access control boundary we have.
+  # NOTE: If auth is applied at the APIRouter level rather than per-endpoint,
+  # this rule will produce false positives. Suppress with # nosemgrep on the
+  # decorator line and document why router-level auth is used instead.
+  # OWASP A01:2021 — Broken Access Control
+  # IEC 62443 SR 1.1 — Human User Authentication
+  - id: post-endpoint-missing-auth
+    patterns:
+      - pattern: |
+          @router.post(...)
+          async def $FUNC(...):
+              ...
+      - pattern-not: |
+          @router.post(..., dependencies=[..., Depends(verify_api_key), ...], ...)
+          async def $FUNC(...):
+              ...
+    message: >
+      POST endpoint is missing Depends(verify_api_key). All state-changing
+      endpoints must require authentication. OWASP A01:2021 — Broken Access Control,
+      IEC 62443 SR 1.1 — Human User Authentication
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-306
+      owasp: A01:2021 - Broken Access Control
+      iec62443: SR 1.1 - Human User Authentication
