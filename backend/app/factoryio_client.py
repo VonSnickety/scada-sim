@@ -213,7 +213,7 @@ class FactoryIOClient:
         if not self.client or not self.client.connected:
             raise RuntimeError("Not connected to Factory.io")
         async with self._lock:
-            result = await self.client.write_register(address=address, value=value, slave=1)
+            result = await self.client.write_register(address=address, value=value, slave=1)  # nosemgrep: modbus-write-no-connection-check
             if result.isError():
                 raise ModbusException(f"Write register {address} failed: {result}")
             logger.info(f"Wrote register {address} = {value}")
