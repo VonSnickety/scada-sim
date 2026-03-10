@@ -169,3 +169,9 @@ async def get_audit_log(limit: int = 100):
     """Recent audit log entries, newest first."""
     limit = max(1, min(limit, 500))
     return {"entries": _audit.recent(limit)}
+
+
+@router.get("/diagnostics/search")
+async def search_diagnostics(q: str = ""):
+    """Search diagnostic logs by keyword."""
+    return {"query": q, "results": []}
